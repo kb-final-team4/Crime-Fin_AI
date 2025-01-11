@@ -7,6 +7,11 @@ import datetime
 from tqdm import tqdm
 import sys
 
+# 재시도 로직에 필요한 라이브러리 불러오기
+import time
+from functools import wraps
+from urllib3.exceptions import MaxRetryError
+
 # 페이지 url 형식에 맞게 바꾸어 주는 함수 만들기
 # 입력된 수를 1, 11, 21, 31 ...만들어 주는 함수
 
@@ -51,19 +56,51 @@ def news_attrs_crawler(articles, attrs):
 
 # ConnectionError방지
 headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/98.0.4758.102"}
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36"}
 
 # html생성해서 기사크롤링하는 함수 만들기(url): 링크를 반환
 
+# 재시도 로직
 
+
+def retry(ExceptionToCheck, tries=4, delay=3, backoff=2):
+    """Retry calling the decorated function using an exponential backoff."""
+
+    def deco_retry(f):
+
+        @wraps(f)
+        def f_retry(*args, **kwargs):
+            mtries, mdelay = tries, delay
+            while mtries > 1:
+                try:
+                    return f(*args, **kwargs)
+                except ExceptionToCheck as e:
+                    msg = "%s, Retrying in %d seconds..." % (str(e), mdelay)
+                    print(msg)
+                    time.sleep(mdelay)
+                    mtries -= 1
+                    mdelay *= backoff
+            return f(*args, **kwargs)
+
+        return f_retry
+
+    return deco_retry
+
+###
+
+
+# Applying the retry decorator here.
+@retry((MaxRetryError,), tries=4, delay=15, backoff=2)
 def articles_crawler(url):
     # html 불러오기
-    original_html = requests.get(i, headers=headers)  # type: ignore
+    original_html = requests.get(
+        i, headers=headers, verify=False, timeout=60)  # type: ignore
     html = BeautifulSoup(original_html.text, "html.parser")
 
     url_naver = html.select(
         "div.group_news > ul.list_news > li div.news_area > div.news_info > div.info_group > a.info")
     url = news_attrs_crawler(url_naver, 'href')
+
     return url
 
 
@@ -120,7 +157,7 @@ for i in tqdm(range(len(news_url_1))):
 
 for i in tqdm(final_urls):
     # 각 기사 html get하기
-    news = requests.get(i, headers=headers)
+    news = requests.get(i, headers=headers, verify=False, timeout=60)
     news_html = BeautifulSoup(news.text, "html.parser")
 
     # 뉴스 제목 가져오기
@@ -151,7 +188,7 @@ for i in tqdm(final_urls):
     try:
         html_date = news_html.select_one(
             "div#ct> div.media_end_head.go_trans > div.media_end_head_info.nv_notrans > div.media_end_head_info_datestamp > div > span")
-        news_date = html_date.attrs['data-date-time']
+        news_date = html_date.attrs['data-date-time']  # type: ignore
     except AttributeError:
         news_date = news_html.select_one(
             "#content > div.end_ct > div > div.article_info > span > em")
