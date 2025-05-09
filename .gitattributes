@@ -1,0 +1,4 @@
+* linguist-vendored
+*.python linguist-vendored=false
+*.jupyter notebook linguist-vendored=false
+*.DockerFile linguist-vendored=false
